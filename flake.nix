@@ -26,6 +26,7 @@
             rust-bin.stable.latest.default
             rustup
             jetbrains.clion
+            jetbrains.rust-rover
           ];
         };
       }
