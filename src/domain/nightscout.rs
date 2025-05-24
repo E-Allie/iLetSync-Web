@@ -1,13 +1,12 @@
 use anyhow::{anyhow, Result};
 use rayon::prelude::*;
-use reqwest::blocking::Client;
-use reqwest::RequestBuilder;
+use reqwest::blocking::{Client, Request, RequestBuilder};
+use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
-use serde_json::json;
 
 use crate::models::ilet::iLetData;
 use crate::models::nightscout::{DocumentBase, NSDocs};
-use crate::models::nightscout::Treatment;
+use crate::models::nightscout::{Food, Treatment};
 use crate::models::nightscout_web::{NightscoutBearer, NightscoutSecrets};
 
 pub fn generate_token(ns_info: &NightscoutSecrets, client: &Client) -> Result<String> {
@@ -22,9 +21,12 @@ pub fn generate_token(ns_info: &NightscoutSecrets, client: &Client) -> Result<St
     }
 }
 
-pub fn iLet_to_ns(iLet_doc: iLetData) -> [Option<NSDocs>; 2] {
+//Do to the current nature of iLet document reading,
+//elem 0 and 1 will ALWAYS be specifically Option<NSDocs::TreatmentDoc>,
+//TODO! Design choice on how to do food, elem 2
+pub fn iLet_to_ns(iLet_doc: iLetData) -> (Option<Treatment>, Option<Treatment>, Option<Food>) {
     if iLet_doc.total_insulin_delivered.is_zero() {
-        return [None, None];
+        return (None, None, None);
     } else {
 
         let doc_base = DocumentBase {
@@ -58,7 +60,7 @@ pub fn iLet_to_ns(iLet_doc: iLetData) -> [Option<NSDocs>; 2] {
             protein: None,
             fat: None,
             insulin: Some(iLet_doc.basal_insulin_delivered),
-            duration: None,
+            duration: Some(Decimal::new(5,0)), //For all iLet basals, the duration is technically the 5 minute loop
             pre_bolus: None,
             split_now: None,
             split_ext: None,
@@ -78,22 +80,102 @@ pub fn iLet_to_ns(iLet_doc: iLetData) -> [Option<NSDocs>; 2] {
         if iLet_doc.meal_dose.is_zero() {
             //Normal Basal/Bolus
             if iLet_doc.total_insulin_delivered == iLet_doc.basal_insulin_delivered {
-                return [Some(NSDocs::TreatmentDoc(basal)), None]
+                (Some(basal), None, None)
             } else {
                 bolus.event_type = Some("Automated Bolus".to_string());
-                return [Some(NSDocs::TreatmentDoc(basal)), Some(NSDocs::TreatmentDoc(bolus))];
+                (Some(basal), Some(bolus), None)
             }
         } else {
             //Account for food
             bolus.event_type = Some("Food Bolus".to_string());
-            return [Some(NSDocs::TreatmentDoc(basal)), Some(NSDocs::TreatmentDoc(bolus))];
+            (Some(basal), Some(bolus), None)
         }
     }
 }
 
 pub fn iLet_to_ns_server(iLet_data: Vec<iLetData>, client: &Client, ns_token: String, ns_info: NightscoutSecrets) {
 
-    let res = iLet_data.into_par_iter()
+    // Process in chunks to balance parallelism with connection reuse
+    iLet_data
+        .par_chunks(1000) // Process 1000 items per thread
+        .for_each(|chunk| {
+            chunk.iter().for_each(|ilet_doc| {
+                let (basal, bolus, food) = iLet_to_ns(ilet_doc.clone());
+                
+                // Send treatments
+                if let Some(basal_treatment) = basal {
+                    let result = client
+                        .post(format!("{}api/v3/treatments", ns_info.website))
+                        .bearer_auth(&ns_token)
+                        .json(&basal_treatment)
+                        .send();
+
+                    if let Err(e) = result {
+                        eprintln!("Error sending basal treatment: {:?}", e);
+                    }
+                }
+
+                if let Some(bolus_treatment) = bolus {
+                    let result = client
+                        .post(format!("{}api/v3/treatments", ns_info.website))
+                        .bearer_auth(&ns_token)
+                        .json(&bolus_treatment)
+                        .send();
+
+                    if let Err(e) = result {
+                        eprintln!("Error sending bolus treatment: {:?}", e);
+                    }
+                }
+
+                // Send food
+                if let Some(food_entry) = food {
+                    let result = client
+                        .post(format!("{}api/v3/food", ns_info.website))
+                        .bearer_auth(&ns_token)
+                        .json(&food_entry)
+                        .send();
+
+                    if let Err(e) = result {
+                        eprintln!("Error sending food item: {:?}", e);
+                    }
+                }
+            });
+        });
+
+    /*iLet_data.par_iter()
+        .flat_map(|&iLet_doc| {
+            iLet_to_ns(iLet_doc)
+        })
+        .map(|maybe_doc| {
+            match maybe_doc {  }
+        })
+        .collect();
+
+    iLet_data.into_par_iter()
+        .for_each(|data| iLet_to_ns(data)
+            .par_iter()
+            .map_with(client, |client, maybe_doc| {
+                let mut req_builder: RequestBuilder = RequestBuilder::default();
+                match maybe_doc {
+                    None => {}
+                    Some(doc) => {
+                        let collection: &str = match doc {
+                            NSDocs::EntryDoc(_) => { "entries" }
+                            NSDocs::FoodDoc(_) => { "food" }
+                            NSDocs::TreatmentDoc(_) => { "treatments" }
+                        };
+/////3 vec collections
+                    }
+                }
+                req_builder
+            }).collect_into_vec(&mut req_vec));*/
+
+
+
+    //todo!()
+
+
+    /*let res = iLet_data.into_par_iter()
         .map(|data| (iLet_to_ns(data)
             .par_iter()
             .for_each_with(client, |client, maybe_doc| {
@@ -106,9 +188,9 @@ pub fn iLet_to_ns_server(iLet_data: Vec<iLetData>, client: &Client, ns_token: St
                             NSDocs::TreatmentDoc(_) => {"treatments"}
                         };
                         //TODO! Collect Errors better
-                        let res = client.post(ns_info.website.clone() + "api/v3/" + collection)
+                        client.post(ns_info.website.clone() + "api/v3/" + collection)
                             .bearer_auth(&ns_token)
-                            .header("Content-Type", "application/json")
+                            //.header("Content-Type", "application/json")
                             .json(doc)
                             .send()
                             .unwrap();
@@ -116,6 +198,6 @@ pub fn iLet_to_ns_server(iLet_data: Vec<iLetData>, client: &Client, ns_token: St
                 }
             })));
 
-    res.collect()
+    res.collect()*/
 }
 

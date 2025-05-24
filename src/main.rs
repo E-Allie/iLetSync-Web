@@ -1,7 +1,7 @@
 use std::fs::File;
 
 use anyhow::Result;
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeZone};
 //use smol::{prelude::*};
 
 use crate::domain::ilet;
@@ -28,16 +28,15 @@ fn main() {
     let ilet_bearer = ilet::authenticate_iLet(&ilet_config, &client);
 
     //TODO! Accept external timestamps, there are DEFINITELY limits to time ranges before iLet servers return an error
+    let start_date = Local.with_ymd_and_hms(2025, 5, 19, 13, 30, 50).unwrap();
+    let end_date = Local.with_ymd_and_hms(2025, 5, 24, 1, 30, 50).unwrap();
+    
     let ilet_data = ilet::grab_iLet_data(
         &client,
         ilet_bearer.unwrap(),
         ilet_config.serial_number,
-        DateTime::from_timestamp(1710864250, 0)
-            .unwrap()
-            .with_timezone(&Local),
-        DateTime::from_timestamp(1716073850, 0)
-            .unwrap()
-            .with_timezone(&Local),
+        start_date,
+        end_date,
     );
 
     iLet_to_ns_server(ilet_data.unwrap(), &client, ns_bearer.unwrap(), nightscout_config);

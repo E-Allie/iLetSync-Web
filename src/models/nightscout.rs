@@ -1,16 +1,14 @@
 use chrono::{DateTime, Duration, Local};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, DurationSeconds, serde_as};
+use serde_with::{DurationSeconds, serde_as};
 use serde_with::skip_serializing_none;
-use uuid::Uuid;
 
 //A module describing the structs of the NS v3 API
 //Refer to the NS API descriptions for more information, the names are equivalent.
 
 //Implementation Decision: This will internally treat ALL numbers as arbitrary precision decimals, since the Nightscout API only dictates the "number" type, even if a smaller integer might seemingly encapsulate all possible values.
 //There is an exception for specific types of data, such as dates or UUIDs.
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) enum NSDocs {
@@ -121,8 +119,8 @@ pub(crate) struct Treatment {
     pub(crate) fat: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     pub(crate) insulin: Option<Decimal>,
-    #[serde_as(as = "Option<DurationSeconds<i64>>")]
-    pub(crate) duration: Option<Duration>,         //TODO: Come back to this, nightscout expects minutes
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
+    pub(crate) duration: Option<Decimal>,           //Todo! Think about duration in minutes
     #[serde_as(as = "Option<DurationSeconds<i64>>")]
     pub(crate) pre_bolus: Option<Duration>,
     #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
