@@ -8,6 +8,10 @@ pub(crate) struct iLetSecrets {
     pub(crate) username: String,
     pub(crate) password: String,
     pub(crate) serial_number: String,
+    #[serde(rename = "startDate")]
+    pub start_date: Option<String>,
+    #[serde(rename = "endDate")]
+    pub end_date: Option<String>,
 }
 
 #[derive(Debug)]
